@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { createWidget, getWidgets, getAnalytics, createBusiness, getBusiness } from '../lib/supabase'
+import { createWidget, getWidgets, getAnalytics, createBusiness, getBusiness, updateWidget, deleteWidget, generateWidgetCode } from '../lib/supabase'
 import Button from '../components/Button'
 import { toast } from 'react-hot-toast'
-import { Code, Copy, Settings, BarChart3, Eye, Trash2, Plus, ExternalLink, Palette, Zap, MessageSquare, Star, Users, TrendingUp } from 'lucide-react'
+import { Code, Copy, Settings, BarChart3, Eye, Trash2, Plus, ExternalLink, Palette, Zap, MessageSquare, Star, Users, TrendingUp, Save, X } from 'lucide-react'
 
 const Dashboard = () => {
   const { user } = useAuth()
@@ -12,13 +12,15 @@ const Dashboard = () => {
   const [showWidgetBuilder, setShowWidgetBuilder] = useState(false)
   const [showInstallModal, setShowInstallModal] = useState(false)
   const [selectedWidget, setSelectedWidget] = useState(null)
+  const [editingWidget, setEditingWidget] = useState(null)
   const [widgetConfig, setWidgetConfig] = useState({
+    name: 'Review Widget',
     title: 'How was your experience?',
     subtitle: 'We\'d love to hear your feedback!',
     theme: 'light',
     position: 'bottom-right',
-    showAfter: 5000,
-    buttonText: 'Leave a Review',
+    show_after: 5000,
+    button_text: 'Leave a Review',
     colors: {
       primary: '#007cba',
       secondary: '#f8f9fa',
@@ -33,9 +35,11 @@ const Dashboard = () => {
   })
 
   useEffect(() => {
-    fetchWidgets()
-    fetchAnalytics()
-  }, [])
+    if (user) {
+      fetchWidgets()
+      fetchAnalytics()
+    }
+  }, [user])
 
   const fetchWidgets = async () => {
     try {
@@ -48,7 +52,10 @@ const Dashboard = () => {
       setWidgets(data || [])
     } catch (error) {
       console.error('Error fetching widgets:', error)
-      setWidgets([]) // Set empty array on error
+      toast.error('Failed to load widgets')
+      setWidgets([])
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -77,13 +84,17 @@ const Dashboard = () => {
       return newBusiness
     } catch (error) {
       console.error('Error ensuring business:', error)
-      throw error // Don't fall back to mock business
+      toast.error('Failed to set up business')
+      throw error
     }
   }
 
   const fetchAnalytics = async () => {
     try {
-      const { data, error } = await getAnalytics(user.id)
+      const business = await ensureUserHasBusiness()
+      if (!business) return
+      
+      const { data, error } = await getAnalytics(business.id)
       if (error) throw error
       
       // Calculate analytics from data
@@ -99,108 +110,134 @@ const Dashboard = () => {
       })
     } catch (error) {
       console.error('Error fetching analytics:', error)
+      // Don't show error toast for analytics as it's not critical
     }
-    setLoading(false)
-  }
-
-  const generateWidgetCode = (widget) => {
-    const widgetId = widget?.id || 'demo-widget'
-    const businessId = user.id
-    
-    return `<!-- Smart Review Widget - Add this code before the closing </body> tag -->
-<div data-smart-review-widget 
-     data-business-id="${businessId}" 
-     data-widget-id="${widgetId}"
-     data-theme="${widgetConfig.theme}"
-     data-position="${widgetConfig.position}"
-     data-show-after="${widgetConfig.showAfter}">
-</div>
-<script src="https://smart-review-automator.netlify.app/widget.js" async></script>
-<!-- End Smart Review Widget -->`
-  }
-
-  const generateInstallationInstructions = (widget) => {
-    return `📋 INSTALLATION INSTRUCTIONS:
-
-1. Copy the code snippet below
-2. Open your website's HTML file (usually index.html)
-3. Paste the code just before the closing </body> tag
-4. Save and refresh your website
-
-✅ The widget will automatically appear on your site!
-
-💡 TIPS:
-- The widget will show after ${widgetConfig.showAfter/1000} seconds
-- It will appear in the ${widgetConfig.position} corner
-- Customize colors and text in the dashboard
-
-🔧 TROUBLESHOOTING:
-- Make sure the script loads (check browser console)
-- Verify your domain is added to CORS settings
-- Test on different pages of your website`
   }
 
   const handleCreateWidget = async () => {
     try {
-      // First ensure user has a business
-      let business = await ensureUserHasBusiness()
+      const business = await ensureUserHasBusiness()
       if (!business) return
 
-      const { data, error } = await createWidget({
+      const widgetData = {
         business_id: business.id,
-        name: `Widget ${widgets.length + 1}`,
-        config: widgetConfig,
+        name: widgetConfig.name,
+        title: widgetConfig.title,
+        subtitle: widgetConfig.subtitle,
+        theme: widgetConfig.theme,
+        position: widgetConfig.position,
+        show_after: widgetConfig.show_after,
+        button_text: widgetConfig.button_text,
+        colors: widgetConfig.colors,
         is_active: true
-      })
+      }
 
+      const { data, error } = await createWidget(widgetData)
       console.log('Widget creation result:', { data, error })
-
-      if (error) throw error
-      if (!data) throw new Error('Widget creation returned no data')
       
-      await fetchWidgets()
-      setShowWidgetBuilder(false)
+      if (error) throw error
+      
       toast.success('Widget created successfully!')
+      setShowWidgetBuilder(false)
+      resetWidgetConfig()
+      fetchWidgets()
     } catch (error) {
-      toast.error('Error creating widget: ' + error.message)
+      console.error('Error creating widget:', error)
+      toast.error('Failed to create widget: ' + error.message)
     }
   }
 
-  const copyToClipboard = (text) => {
+  const handleEditWidget = (widget) => {
+    setEditingWidget(widget)
+    setWidgetConfig({
+      name: widget.name || 'Review Widget',
+      title: widget.title || 'How was your experience?',
+      subtitle: widget.subtitle || 'We\'d love to hear your feedback!',
+      theme: widget.theme || 'light',
+      position: widget.position || 'bottom-right',
+      show_after: widget.show_after || 5000,
+      button_text: widget.button_text || 'Leave a Review',
+      colors: widget.colors || {
+        primary: '#007cba',
+        secondary: '#f8f9fa',
+        text: '#333333'
+      }
+    })
+    setShowWidgetBuilder(true)
+  }
+
+  const handleUpdateWidget = async () => {
     try {
-      // Using the modern Clipboard API
-      navigator.clipboard.writeText(text)
-        .then(() => {
-          toast.success('Code copied to clipboard!');
-        })
-        .catch(err => {
-          console.error('Clipboard write failed:', err);
-          // Fallback for older browsers
-          const textarea = document.createElement('textarea');
-          textarea.value = text;
-          textarea.style.position = 'fixed'; // Prevent scrolling to bottom
-          document.body.appendChild(textarea);
-          textarea.focus();
-          textarea.select();
-          
-          try {
-            const successful = document.execCommand('copy');
-            if (successful) {
-              toast.success('Code copied to clipboard!');
-            } else {
-              toast.error('Failed to copy code');
-            }
-          } catch (err) {
-            console.error('execCommand error:', err);
-            toast.error('Failed to copy code');
-          }
-          
-          document.body.removeChild(textarea);
-        });
-    } catch (err) {
-      console.error('Copy to clipboard error:', err);
-      toast.error('Failed to copy code');
+      if (!editingWidget) return
+
+      const updates = {
+        name: widgetConfig.name,
+        title: widgetConfig.title,
+        subtitle: widgetConfig.subtitle,
+        theme: widgetConfig.theme,
+        position: widgetConfig.position,
+        show_after: widgetConfig.show_after,
+        button_text: widgetConfig.button_text,
+        colors: widgetConfig.colors
+      }
+
+      const { error } = await updateWidget(editingWidget.id, updates)
+      
+      if (error) throw error
+      
+      toast.success('Widget updated successfully!')
+      setShowWidgetBuilder(false)
+      setEditingWidget(null)
+      resetWidgetConfig()
+      fetchWidgets()
+    } catch (error) {
+      console.error('Error updating widget:', error)
+      toast.error('Failed to update widget: ' + error.message)
     }
+  }
+
+  const handleDeleteWidget = async (widgetId) => {
+    if (!confirm('Are you sure you want to delete this widget?')) return
+
+    try {
+      const { error } = await deleteWidget(widgetId)
+      
+      if (error) throw error
+      
+      toast.success('Widget deleted successfully!')
+      fetchWidgets()
+    } catch (error) {
+      console.error('Error deleting widget:', error)
+      toast.error('Failed to delete widget: ' + error.message)
+    }
+  }
+
+  const resetWidgetConfig = () => {
+    setWidgetConfig({
+      name: 'Review Widget',
+      title: 'How was your experience?',
+      subtitle: 'We\'d love to hear your feedback!',
+      theme: 'light',
+      position: 'bottom-right',
+      show_after: 5000,
+      button_text: 'Leave a Review',
+      colors: {
+        primary: '#007cba',
+        secondary: '#f8f9fa',
+        text: '#333333'
+      }
+    })
+  }
+
+  const handleCopyCode = (widget) => {
+    const code = generateWidgetCode(widget)
+    navigator.clipboard.writeText(code)
+    toast.success('Widget code copied to clipboard!')
+  }
+
+  const handleShowInstallModal = (widget) => {
+    setSelectedWidget(widget)
+    setShowInstallModal(true)
   }
 
   const StatCard = ({ icon: Icon, title, value, color }) => (
@@ -218,32 +255,39 @@ const Dashboard = () => {
   )
 
   if (loading) {
-    return <div className="flex justify-center items-center h-64">Loading...</div>
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p className="mt-2 text-gray-600">Welcome back, {user?.email}</p>
+        <p className="mt-2 text-gray-600">Manage your review widgets and track performance</p>
       </div>
 
-      {/* Analytics Stats */}
+      {/* Analytics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard
           icon={Eye}
           title="Total Views"
-          value={analytics.totalViews}
+          value={analytics.totalViews.toLocaleString()}
           color="bg-blue-500"
         />
         <StatCard
-          icon={Zap}
+          icon={MessageSquare}
           title="Total Clicks"
-          value={analytics.totalClicks}
+          value={analytics.totalClicks.toLocaleString()}
           color="bg-green-500"
         />
         <StatCard
-          icon={BarChart3}
+          icon={TrendingUp}
           title="Conversion Rate"
           value={`${analytics.conversionRate}%`}
           color="bg-yellow-500"
@@ -272,29 +316,47 @@ const Dashboard = () => {
           
           <div className="space-y-4">
             {widgets.map((widget, index) => (
-              <div key={index} className="border-b pb-4">
+              <div key={widget.id || index} className="border-b pb-4">
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
                     <h3 className="font-medium">{widget.name || 'Unnamed Widget'}</h3>
-                    <p className="text-sm text-gray-600 mt-1">ID: {widget.id || 'demo-widget'}</p>
+                    <p className="text-sm text-gray-600 mt-1">ID: {widget.widget_code || 'demo-widget'}</p>
                     <p className="text-sm text-gray-400">
                       Created: {new Date(widget.created_at || Date.now()).toLocaleDateString()}
                     </p>
+                    <div className="flex items-center mt-2 space-x-4">
+                      <span className="text-sm text-gray-500">
+                        Views: {widget.views || 0}
+                      </span>
+                      <span className="text-sm text-gray-500">
+                        Clicks: {widget.clicks || 0}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex space-x-2">
                     <Button 
                       size="sm" 
-                      onClick={() => {
-                        setSelectedWidget(widget)
-                        setShowInstallModal(true)
-                      }} 
+                      onClick={() => handleCopyCode(widget)} 
                       className="flex items-center"
                     >
                       <Copy className="w-4 h-4 mr-1" />
-                      Get Code
+                      Copy Code
                     </Button>
-                    <Button size="sm" variant="secondary">
+                    <Button 
+                      size="sm" 
+                      variant="secondary"
+                      onClick={() => handleEditWidget(widget)}
+                      className="flex items-center"
+                    >
                       <Settings className="w-4 h-4" />
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="danger"
+                      onClick={() => handleDeleteWidget(widget.id)}
+                      className="flex items-center"
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>
@@ -325,17 +387,22 @@ const Dashboard = () => {
               <p className="text-gray-600 mb-4">{widgetConfig.subtitle}</p>
               <div className="flex justify-center space-x-1 mb-4">
                 {[1, 2, 3, 4, 5].map(star => (
-                  <Star key={star} className="w-6 h-6 text-gray-300" />
+                  <Star key={star} className="w-6 h-6 text-yellow-400 fill-current" />
                 ))}
               </div>
-              <Button size="sm" className="w-full">
-                {widgetConfig.buttonText}
+              <Button 
+                size="sm" 
+                className="w-full"
+                style={{ backgroundColor: widgetConfig.colors.primary }}
+              >
+                {widgetConfig.button_text}
               </Button>
             </div>
           </div>
           <div className="mt-4 text-sm text-gray-500">
             <p>Theme: {widgetConfig.theme}</p>
             <p>Position: {widgetConfig.position}</p>
+            <p>Show after: {widgetConfig.show_after}ms</p>
           </div>
         </div>
       </div>
@@ -343,117 +410,225 @@ const Dashboard = () => {
       {/* Widget Builder Modal */}
       {showWidgetBuilder && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-            <h2 className="text-xl font-semibold mb-4">Create New Widget</h2>
+          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">
+                {editingWidget ? 'Edit Widget' : 'Create New Widget'}
+              </h2>
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                onClick={() => {
+                  setShowWidgetBuilder(false)
+                  setEditingWidget(null)
+                  resetWidgetConfig()
+                }}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
             
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Widget Title
-                </label>
-                <input
-                  type="text"
-                  value={widgetConfig.title}
-                  onChange={(e) => setWidgetConfig({...widgetConfig, title: e.target.value})}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Subtitle
-                </label>
-                <textarea
-                  value={widgetConfig.subtitle}
-                  onChange={(e) => setWidgetConfig({...widgetConfig, subtitle: e.target.value})}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows="2"
-                />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Theme
+                    Widget Name
                   </label>
-                  <select
-                    value={widgetConfig.theme}
-                    onChange={(e) => setWidgetConfig({...widgetConfig, theme: e.target.value})}
+                  <input
+                    type="text"
+                    value={widgetConfig.name}
+                    onChange={(e) => setWidgetConfig({...widgetConfig, name: e.target.value})}
                     className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
-                  </select>
+                    placeholder="My Review Widget"
+                  />
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Position
+                    Widget Title
                   </label>
-                  <select
-                    value={widgetConfig.position}
-                    onChange={(e) => setWidgetConfig({...widgetConfig, position: e.target.value})}
+                  <input
+                    type="text"
+                    value={widgetConfig.title}
+                    onChange={(e) => setWidgetConfig({...widgetConfig, title: e.target.value})}
                     className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="bottom-right">Bottom Right</option>
-                    <option value="bottom-left">Bottom Left</option>
-                    <option value="top-right">Top Right</option>
-                    <option value="top-left">Top Left</option>
-                  </select>
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Subtitle
+                  </label>
+                  <textarea
+                    value={widgetConfig.subtitle}
+                    onChange={(e) => setWidgetConfig({...widgetConfig, subtitle: e.target.value})}
+                    className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows="2"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Button Text
+                  </label>
+                  <input
+                    type="text"
+                    value={widgetConfig.button_text}
+                    onChange={(e) => setWidgetConfig({...widgetConfig, button_text: e.target.value})}
+                    className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Theme
+                    </label>
+                    <select
+                      value={widgetConfig.theme}
+                      onChange={(e) => setWidgetConfig({...widgetConfig, theme: e.target.value})}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="light">Light</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Position
+                    </label>
+                    <select
+                      value={widgetConfig.position}
+                      onChange={(e) => setWidgetConfig({...widgetConfig, position: e.target.value})}
+                      className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="bottom-right">Bottom Right</option>
+                      <option value="bottom-left">Bottom Left</option>
+                      <option value="top-right">Top Right</option>
+                      <option value="top-left">Top Left</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Show After (milliseconds)
+                  </label>
+                  <input
+                    type="number"
+                    value={widgetConfig.show_after}
+                    onChange={(e) => setWidgetConfig({...widgetConfig, show_after: parseInt(e.target.value)})}
+                    className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Primary Color
+                  </label>
+                  <input
+                    type="color"
+                    value={widgetConfig.colors.primary}
+                    onChange={(e) => setWidgetConfig({
+                      ...widgetConfig, 
+                      colors: {...widgetConfig.colors, primary: e.target.value}
+                    })}
+                    className="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              
+              {/* Live Preview */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="text-sm font-medium text-gray-700 mb-4">Live Preview</h3>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
+                  <div className="max-w-xs mx-auto p-4 bg-white rounded-lg shadow-lg">
+                    <h4 className="text-lg font-medium mb-2">{widgetConfig.title}</h4>
+                    <p className="text-gray-600 mb-4 text-sm">{widgetConfig.subtitle}</p>
+                    <div className="flex justify-center space-x-1 mb-4">
+                      {[1, 2, 3, 4, 5].map(star => (
+                        <Star key={star} className="w-4 h-4 text-yellow-400 fill-current" />
+                      ))}
+                    </div>
+                    <button 
+                      className="w-full text-white px-4 py-2 rounded-md text-sm font-medium"
+                      style={{ backgroundColor: widgetConfig.colors.primary }}
+                    >
+                      {widgetConfig.button_text}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
             
-            <div className="flex justify-end space-x-3 mt-6">
+            <div className="flex justify-end space-x-4 mt-6">
               <Button 
                 variant="secondary" 
-                onClick={() => setShowWidgetBuilder(false)}
+                onClick={() => {
+                  setShowWidgetBuilder(false)
+                  setEditingWidget(null)
+                  resetWidgetConfig()
+                }}
               >
                 Cancel
               </Button>
-              <Button onClick={handleCreateWidget}>
-                Create Widget
+              <Button 
+                onClick={editingWidget ? handleUpdateWidget : handleCreateWidget}
+                className="flex items-center"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {editingWidget ? 'Update Widget' : 'Create Widget'}
               </Button>
             </div>
           </div>
         </div>
       )}
-      {/* Installation Modal */}
+
+      {/* Install Modal */}
       {showInstallModal && selectedWidget && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-3xl">
+          <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">Install Widget</h2>
-              <button 
+              <Button 
+                variant="secondary" 
+                size="sm" 
                 onClick={() => setShowInstallModal(false)}
-                className="text-gray-500 hover:text-gray-700"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="mb-4">
-              {generateInstallationInstructions(selectedWidget)}
-            </div>
-            
-            <div className="border border-gray-300 bg-gray-50 rounded-md p-4 mb-4 relative">
-              <pre className="text-sm overflow-x-auto whitespace-pre-wrap">{generateWidgetCode(selectedWidget)}</pre>
-              <button
-                onClick={() => copyToClipboard(generateWidgetCode(selectedWidget))}
-                className="absolute top-2 right-2 bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition-colors"
-                aria-label="Copy to clipboard"
-                id="copy-widget-code-btn"
-              >
-                <Copy className="w-4 h-4" />
-              </button>
-            </div>
-            
-            <div className="flex justify-end">
-              <Button onClick={() => setShowInstallModal(false)}>
-                Close
+                <X className="w-4 h-4" />
               </Button>
+            </div>
+            
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-medium mb-2">Widget Code</h3>
+                <p className="text-gray-600 mb-4">
+                  Copy and paste this code into your website where you want the review widget to appear.
+                </p>
+                <div className="bg-gray-100 p-4 rounded-lg">
+                  <pre className="text-sm overflow-x-auto">
+                    <code>{generateWidgetCode(selectedWidget)}</code>
+                  </pre>
+                </div>
+                <Button 
+                  onClick={() => handleCopyCode(selectedWidget)}
+                  className="mt-4 flex items-center"
+                >
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copy Code
+                </Button>
+              </div>
+              
+              <div>
+                <h3 className="text-lg font-medium mb-2">Installation Instructions</h3>
+                <ol className="list-decimal list-inside space-y-2 text-gray-600">
+                  <li>Copy the widget code above</li>
+                  <li>Paste it into your website's HTML where you want the review widget to appear</li>
+                  <li>Save and publish your website</li>
+                  <li>The widget will automatically appear after the configured delay</li>
+                </ol>
+              </div>
             </div>
           </div>
         </div>
