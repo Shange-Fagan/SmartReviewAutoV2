@@ -7,6 +7,26 @@ import { Star, MessageSquare, TrendingUp, Shield, Zap, Users } from 'lucide-reac
 const Home = () => {
   const { user } = useAuth()
 
+  const handleScheduleDemo = () => {
+    // Create a demo scheduling functionality
+    window.open('https://calendly.com/smart-review-demo', '_blank')
+  }
+
+  const handleDocumentation = () => {
+    // Open documentation page
+    window.open('/docs', '_blank')
+  }
+
+  const handleSupport = () => {
+    // Open support chat or contact form
+    window.open('mailto:support@smartreview.com', '_blank')
+  }
+
+  const handleContact = () => {
+    // Open contact form
+    window.open('mailto:contact@smartreview.com', '_blank')
+  }
+
   const features = [
     {
       icon: MessageSquare,
@@ -126,7 +146,12 @@ const Home = () => {
                     Start Free Trial
                   </Button>
                 </Link>
-                <Button size="lg" variant="secondary" className="border-white text-white hover:bg-white hover:text-blue-600">
+                <Button 
+                  size="lg" 
+                  variant="secondary" 
+                  className="border-white text-white hover:bg-white hover:text-blue-600"
+                  onClick={handleScheduleDemo}
+                >
                   Schedule Demo
                 </Button>
               </>
@@ -151,13 +176,13 @@ const Home = () => {
               <p className="text-gray-400">Powered by Supabase</p>
             </div>
             <div className="flex space-x-6">
-              <Button variant="secondary" size="sm">
+              <Button variant="secondary" size="sm" onClick={handleDocumentation}>
                 Documentation
               </Button>
-              <Button variant="secondary" size="sm">
+              <Button variant="secondary" size="sm" onClick={handleSupport}>
                 Support
               </Button>
-              <Button variant="secondary" size="sm">
+              <Button variant="secondary" size="sm" onClick={handleContact}>
                 Contact
               </Button>
             </div>

@@ -85,17 +85,15 @@ const Billing = () => {
 
   // PayPal subscription creation using our backend endpoint
   const createSubscription = async (planId) => {
-    // Set the selected plan based on the provided planId
-    setSelectedPlan(planId);
-    
-    const plan = PRICING_PLANS[planId.toUpperCase()];
+    const plan = PRICING_PLANS[planId.toUpperCase()]
     if (!plan || !plan.planId) {
-      toast.error('Invalid plan selected');
-      return;
+      toast.error('Invalid plan selected')
+      return
     }
     
-    console.log('Creating subscription for plan:', planId, plan);
-    setLoading(true);
+    console.log('Creating subscription for plan:', planId, plan)
+    setLoading(true)
+    setSelectedPlan(planId)
 
     try {
       // Call our backend to create the subscription
@@ -111,94 +109,117 @@ const Billing = () => {
           returnUrl: `${window.location.origin}/dashboard?success=true`,
           cancelUrl: `${window.location.origin}/billing?canceled=true`
         })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('PayPal subscription creation error:', errorText);
-        toast.error('Failed to create subscription. Please try again.');
-        setLoading(false);
-        return;
-      }
-
-      const result = await response.json();
-      
-      if (result.approvalUrl) {
-        console.log('Redirecting to PayPal approval URL:', result.approvalUrl);
-        window.location.href = result.approvalUrl;
-      } else {
-        toast.error('Invalid response from server. Missing approval URL.');
-        setLoading(false);
-      }
-    } catch (error) {
-      console.error('Subscription creation error:', error);
-      toast.error('Error creating subscription: ' + error.message);
-      setLoading(false);
-    }
-  }
-
-  // Handle successful subscription approval
-  const onApprove = async (data, actions) => {
-    try {
-      setLoading(true)
-      
-      // Call our backend to handle the subscription approval
-      const response = await fetch('/.netlify/functions/handle-paypal-approval', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          subscriptionId: data.subscriptionID,
-          userId: user.id,
-          planId: selectedPlan
-        })
       })
 
       if (!response.ok) {
-        throw new Error('Failed to process subscription')
+        const errorText = await response.text()
+        console.error('PayPal subscription creation error:', errorText)
+        toast.error('Failed to create subscription. Please try again.')
+        setLoading(false)
+        return
       }
 
       const result = await response.json()
       
-      toast.success('Subscription activated successfully!')
-      
-      // Refresh subscription data
-      const { data: subscriptionData } = await getSubscription(user.id)
-      setSubscription(subscriptionData)
-      setSelectedPlan(null)
-      
+      if (result.approvalUrl) {
+        console.log('Redirecting to PayPal approval URL:', result.approvalUrl)
+        window.location.href = result.approvalUrl
+      } else {
+        toast.error('Invalid response from server. Missing approval URL.')
+        setLoading(false)
+      }
     } catch (error) {
-      console.error('Subscription approval error:', error)
-      toast.error('Failed to activate subscription: ' + error.message)
-    } finally {
+      console.error('Subscription creation error:', error)
+      toast.error('Error creating subscription: ' + error.message)
       setLoading(false)
     }
   }
 
-  // Handle subscription errors
-  const onError = (err) => {
-    console.error('PayPal subscription error:', err)
-    toast.error('Payment failed. Please try again.')
-    setLoading(false)
-  }
-
-  // Handle subscription cancellation
-  const onCancel = (data) => {
-    console.log('PayPal subscription cancelled:', data)
-    toast.info('Payment cancelled')
-    setSelectedPlan(null)
-    setLoading(false)
-  }
-
   // PayPal Buttons component for subscriptions
   const PayPalSubscriptionButton = ({ plan }) => {
-    // Set selected plan before rendering the button
-    React.useEffect(() => {
-      if (plan && plan.id) {
-        setSelectedPlan(plan.id);
+    const createPayPalSubscription = async (data, actions) => {
+      try {
+        setLoading(true)
+        setSelectedPlan(plan.id)
+        
+        // Create subscription using PayPal SDK
+        const response = await fetch('/.netlify/functions/create-paypal-subscription', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            planId: plan.planId,
+            userId: user.id,
+            userEmail: user.email,
+            returnUrl: `${window.location.origin}/dashboard?success=true`,
+            cancelUrl: `${window.location.origin}/billing?canceled=true`
+          })
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to create subscription')
+        }
+
+        const result = await response.json()
+        return result.subscriptionId
+      } catch (error) {
+        console.error('PayPal subscription creation error:', error)
+        toast.error('Failed to create subscription: ' + error.message)
+        throw error
       }
-    }, [plan]);
+    }
+
+    const onApprove = async (data, actions) => {
+      try {
+        setLoading(true)
+        
+        // Call our backend to handle the subscription approval
+        const response = await fetch('/.netlify/functions/handle-paypal-approval', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            subscriptionId: data.subscriptionID,
+            userId: user.id,
+            planId: selectedPlan
+          })
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to process subscription')
+        }
+
+        const result = await response.json()
+        
+        toast.success('Subscription activated successfully!')
+        
+        // Refresh subscription data
+        const { data: subscriptionData } = await getSubscription(user.id)
+        setSubscription(subscriptionData)
+        setSelectedPlan(null)
+        
+      } catch (error) {
+        console.error('Subscription approval error:', error)
+        toast.error('Failed to activate subscription: ' + error.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    const onError = (err) => {
+      console.error('PayPal subscription error:', err)
+      toast.error('Payment failed. Please try again.')
+      setLoading(false)
+    }
+
+    const onCancel = (data) => {
+      console.log('PayPal subscription cancelled:', data)
+      toast.info('Payment cancelled')
+      setSelectedPlan(null)
+      setLoading(false)
+    }
     
     return (
       <PayPalButtons
@@ -208,19 +229,13 @@ const Billing = () => {
           shape: 'rect',
           label: 'subscribe'
         }}
-        createSubscription={(data, actions) => {
-          // Double-check that plan is still selected
-          if (!selectedPlan) {
-            setSelectedPlan(plan.id);
-          }
-          return createSubscription(data, actions);
-        }}
+        createSubscription={createPayPalSubscription}
         onApprove={onApprove}
         onError={onError}
         onCancel={onCancel}
         disabled={loading || (subscription && subscription.status === 'active')}
       />
-    );
+    )
   }
 
   // Always use production mode for PayPal
@@ -254,17 +269,17 @@ const Billing = () => {
   }
 
   // Extract error parameter from URL if present
-  const location = window.location;
+  const location = window.location
   
   // Clear any toast messages from previous sessions
   useEffect(() => {
     // Check for success or error params
     if (location.search.includes('success=true')) {
-      toast.success('Subscription activated successfully!');
+      toast.success('Subscription activated successfully!')
     } else if (location.search.includes('canceled=true')) {
-      toast.info('Payment cancelled');
+      toast.info('Payment cancelled')
     }
-  }, []);
+  }, [])
 
   return (
     <PayPalScriptProvider options={paypalOptions}>
@@ -413,27 +428,9 @@ const Billing = () => {
 
                       {/* PayPal/Card Subscription Buttons */}
                       {paymentMethod === 'paypal' ? (
-                        <Button
-                          onClick={() => createSubscription(plan.id)}
-                          disabled={loading || (subscription && subscription.status === 'active')}
-                          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 font-medium rounded-md shadow-md transition-all duration-200 transform hover:scale-[1.02] flex items-center justify-center"
-                        >
-                          {loading ? (
-                            <div className="flex items-center">
-                              <div className="animate-spin mr-2 h-5 w-5 border-b-2 border-white rounded-full"></div>
-                              Processing...
-                            </div>
-                          ) : (
-                            <div className="flex items-center">
-                              <img 
-                                src="https://www.paypalobjects.com/webstatic/mktg/Logo/pp-logo-100px.png" 
-                                alt="PayPal" 
-                                className="h-4 mr-2"
-                              />
-                              Subscribe Now
-                            </div>
-                          )}
-                        </Button>
+                        <div className="w-full">
+                          <PayPalSubscriptionButton plan={plan} />
+                        </div>
                       ) : (
                         <Button
                           onClick={() => createSubscription(plan.id)}

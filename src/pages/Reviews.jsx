@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { getReviews, createReview, deleteReview, getBusiness } from '../lib/supabase'
+import { getReviews, createReview, deleteReview, getBusiness, updateReview } from '../lib/supabase'
 import Button from '../components/Button'
-import { Trash2, Edit, Plus, Star } from 'lucide-react'
+import { Trash2, Edit, Plus, Star, Save, X } from 'lucide-react'
 
 const Reviews = () => {
   const { user } = useAuth()
@@ -10,6 +10,7 @@ const Reviews = () => {
   const [business, setBusiness] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [editingReview, setEditingReview] = useState(null)
   const [formData, setFormData] = useState({
     title: '',
     content: '',
@@ -61,19 +62,47 @@ const Reviews = () => {
       return
     }
     
-    const reviewData = {
-      ...formData,
-      user_id: user.id,
-      business_id: business.id,
-      status: 'published'
-    }
+    if (editingReview) {
+      // Update existing review
+      const { data, error } = await updateReview(editingReview.id, formData)
+      if (data) {
+        await fetchReviews()
+        setEditingReview(null)
+        setShowForm(false)
+        setFormData({ title: '', content: '', rating: 5 })
+      }
+    } else {
+      // Create new review
+      const reviewData = {
+        ...formData,
+        user_id: user.id,
+        business_id: business.id,
+        status: 'published'
+      }
 
-    const { data, error } = await createReview(reviewData)
-    if (data) {
-      await fetchReviews()
-      setShowForm(false)
-      setFormData({ title: '', content: '', rating: 5 })
+      const { data, error } = await createReview(reviewData)
+      if (data) {
+        await fetchReviews()
+        setShowForm(false)
+        setFormData({ title: '', content: '', rating: 5 })
+      }
     }
+  }
+
+  const handleEdit = (review) => {
+    setEditingReview(review)
+    setFormData({
+      title: review.title,
+      content: review.content,
+      rating: review.rating
+    })
+    setShowForm(true)
+  }
+
+  const handleCancelEdit = () => {
+    setEditingReview(null)
+    setShowForm(false)
+    setFormData({ title: '', content: '', rating: 5 })
   }
 
   const handleDelete = async (id) => {
@@ -99,37 +128,58 @@ const Reviews = () => {
       alert('No business found. Please set up your business first.')
       return
     }
-    
-    const sampleReviews = [
-      { title: 'Great Product!', content: 'Really impressed with the quality and service.', rating: 5 },
-      { title: 'Good Value', content: 'Decent product for the price point.', rating: 4 },
-      { title: 'Could be better', content: 'Has some issues but overall okay.', rating: 3 },
-      { title: 'Excellent Service', content: 'Outstanding customer support and fast delivery.', rating: 5 },
-      { title: 'Average Experience', content: 'Nothing special but gets the job done.', rating: 3 }
-    ]
 
-    for (const review of sampleReviews) {
-      const reviewData = {
-        ...review,
+    const sampleReviews = [
+      {
+        title: 'Great Service!',
+        content: 'I was impressed with the quality of service. The team was professional and delivered exactly what was promised.',
+        rating: 5,
+        user_id: user.id,
+        business_id: business.id,
+        status: 'published'
+      },
+      {
+        title: 'Good Experience',
+        content: 'Overall a positive experience. There were some minor issues but they were resolved quickly.',
+        rating: 4,
+        user_id: user.id,
+        business_id: business.id,
+        status: 'published'
+      },
+      {
+        title: 'Excellent Product',
+        content: 'The product quality exceeded my expectations. Will definitely recommend to others.',
+        rating: 5,
         user_id: user.id,
         business_id: business.id,
         status: 'published'
       }
-      await createReview(reviewData)
+    ]
+
+    for (const review of sampleReviews) {
+      await createReview(review)
     }
     
     await fetchReviews()
   }
 
   if (loading) {
-    return <div className="flex justify-center items-center h-64">Loading...</div>
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading reviews...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Reviews Management</h1>
-        <div className="flex space-x-4">
+        <h1 className="text-3xl font-bold text-gray-900">Reviews</h1>
+        
+        <div className="flex gap-2">
           <Button onClick={() => setShowForm(true)} className="flex items-center">
             <Plus className="w-4 h-4 mr-2" />
             Add Review
@@ -145,10 +195,12 @@ const Reviews = () => {
         </div>
       </div>
 
-      {/* Add Review Form */}
+      {/* Review Form */}
       {showForm && (
-        <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-          <h2 className="text-xl font-semibold mb-4">Add New Review</h2>
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4">
+            {editingReview ? 'Edit Review' : 'Add New Review'}
+          </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -170,7 +222,7 @@ const Reviews = () => {
               <textarea
                 value={formData.content}
                 onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                rows="4"
+                rows={4}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               />
@@ -193,9 +245,13 @@ const Reviews = () => {
               </select>
             </div>
             
-            <div className="flex space-x-4">
-              <Button type="submit">Save Review</Button>
-              <Button type="button" variant="secondary" onClick={() => setShowForm(false)}>
+            <div className="flex gap-2">
+              <Button type="submit" className="flex items-center">
+                {editingReview ? <Save className="w-4 h-4 mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+                {editingReview ? 'Update Review' : 'Save Review'}
+              </Button>
+              <Button type="button" variant="secondary" onClick={handleCancelEdit} className="flex items-center">
+                <X className="w-4 h-4 mr-2" />
                 Cancel
               </Button>
             </div>
@@ -253,7 +309,8 @@ const Reviews = () => {
                     <Button
                       size="sm"
                       variant="secondary"
-                      onClick={() => alert('Edit functionality would be implemented here')}
+                      onClick={() => handleEdit(review)}
+                      className="flex items-center"
                     >
                       <Edit className="w-4 h-4" />
                     </Button>
@@ -261,6 +318,7 @@ const Reviews = () => {
                       size="sm"
                       variant="danger"
                       onClick={() => handleDelete(review.id)}
+                      className="flex items-center"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
