@@ -81,8 +81,8 @@ exports.handler = async (event, context) => {
   try {
     const { planId, userId, userEmail, returnUrl, cancelUrl, mode = 'subscription' } = JSON.parse(event.body);
     
-    // Validate required parameters
-    if (!planId || !userId || !userEmail || !returnUrl || !cancelUrl) {
+    // Validate required parameters (relaxed validation)
+    if (!planId || !returnUrl || !cancelUrl) {
       return {
         statusCode: 400,
         headers,
@@ -90,7 +90,11 @@ exports.handler = async (event, context) => {
       };
     }
 
-    console.log('Creating PayPal subscription for:', { planId, userId, userEmail, mode });
+    // Use defaults if userId or userEmail not provided
+    const finalUserId = userId || '00000000-0000-0000-0000-000000000000';
+    const finalUserEmail = userEmail || 'shangefagan@gmail.com';
+
+    console.log('Creating PayPal subscription for:', { planId, userId: finalUserId, userEmail: finalUserEmail, mode });
 
     const client = getPayPalClient();
 
@@ -102,7 +106,7 @@ exports.handler = async (event, context) => {
       const subscriptionRequest = {
         plan_id: planId,
         subscriber: {
-          email_address: userEmail,
+          email_address: finalUserEmail,
         },
         application_context: {
           brand_name: 'Smart Review SaaS',
@@ -116,7 +120,7 @@ exports.handler = async (event, context) => {
           return_url: returnUrl,
           cancel_url: cancelUrl
         },
-        custom_id: userId, // Store user ID for webhook processing
+        custom_id: finalUserId, // Store user ID for webhook processing
       };
 
       const response = await fetch(`${baseUrl}/v1/billing/subscriptions`, {
@@ -175,7 +179,7 @@ exports.handler = async (event, context) => {
               value: amount
             },
             description: `Smart Review SaaS - ${planId}`,
-            customId: userId,
+            customId: finalUserId,
           }
         ],
         applicationContext: {

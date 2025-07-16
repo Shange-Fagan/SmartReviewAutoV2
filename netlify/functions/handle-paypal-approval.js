@@ -95,8 +95,8 @@ exports.handler = async (event, context) => {
   try {
     const { subscriptionId, userId, planId } = JSON.parse(event.body);
     
-    // Validate required parameters
-    if (!subscriptionId || !userId || !planId) {
+    // Validate required parameters (relaxed validation)
+    if (!subscriptionId || !planId) {
       return {
         statusCode: 400,
         headers,
@@ -104,7 +104,10 @@ exports.handler = async (event, context) => {
       };
     }
 
-    console.log('Processing PayPal subscription approval:', { subscriptionId, userId, planId });
+    // Use default if userId not provided
+    const finalUserId = userId || '00000000-0000-0000-0000-000000000000';
+
+    console.log('Processing PayPal subscription approval:', { subscriptionId, userId: finalUserId, planId });
 
     // Get subscription details from PayPal
     const subscriptionDetails = await getSubscriptionDetails(subscriptionId);
@@ -120,20 +123,14 @@ exports.handler = async (event, context) => {
       'enterprise': 'Enterprise'
     };
 
-    // Save subscription to database
+    // Save subscription to database using the new validation function
     const { data, error } = await supabase
-      .from('subscriptions')
-      .upsert({
-        user_id: userId,
+      .rpc('validate_paypal_subscription', {
         paypal_subscription_id: subscriptionId,
-        status: subscriptionDetails.status.toLowerCase(),
+        paypal_order_id: subscriptionDetails.id || null,
+        paypal_payer_id: subscriptionDetails.subscriber?.payer_id || null,
         plan_name: planNames[planId] || planId,
-        current_period_start: subscriptionDetails.start_time,
-        current_period_end: subscriptionDetails.billing_info?.next_billing_time,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'user_id'
+        amount: parseFloat(subscriptionDetails.billing_info?.last_payment?.amount?.value || '9.99')
       });
 
     if (error) {

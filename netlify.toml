@@ -10,6 +10,8 @@
   # These will be available to both build and functions
   STRIPE_SECRET_KEY = "${VITE_STRIPE_SECRET_KEY}"
   STRIPE_PUBLIC_KEY = "${VITE_STRIPE_PUBLIC_KEY}"
+  PAYPAL_CLIENT_ID = "${PAYPAL_CLIENT_ID}"
+  PAYPAL_CLIENT_SECRET = "${PAYPAL_CLIENT_SECRET}"
 
 # Redirects for SPA
 [[redirects]]
