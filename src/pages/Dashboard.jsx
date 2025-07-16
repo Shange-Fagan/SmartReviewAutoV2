@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { createWidget, getWidgets, getAnalytics, createBusiness, getBusiness, updateWidget, deleteWidget, generateWidgetCode } from '../lib/supabase'
+import { createWidgetNoAuth, getWidgetsNoAuth, updateWidgetNoAuth, deleteWidgetNoAuth, createWidgetDirectly, getWidgetsDirectly, testDatabaseConnection } from '../lib/supabaseAuthFree'
 import Button from '../components/Button'
 import { toast } from 'react-hot-toast'
 import { Code, Copy, Settings, BarChart3, Eye, Trash2, Plus, ExternalLink, Palette, Zap, MessageSquare, Star, Users, TrendingUp, Save, X, FileText, Monitor, Smartphone } from 'lucide-react'
@@ -35,24 +36,39 @@ const Dashboard = () => {
   })
 
   useEffect(() => {
-    if (user) {
-      fetchWidgets()
-      fetchAnalytics()
-    }
-  }, [user])
+    // Always fetch widgets and analytics, don't require user
+    fetchWidgets()
+    fetchAnalytics()
+  }, [])
 
   const fetchWidgets = async () => {
     try {
-      // First ensure user has a business
-      let business = await ensureUserHasBusiness()
-      if (!business) return
+      // Test database connection first
+      const { connected, error: connError } = await testDatabaseConnection()
+      if (!connected) {
+        console.error('Database connection failed:', connError)
+        toast.error('Database connection failed')
+        return
+      }
+
+      // Try auth-free function first
+      let result = await getWidgetsNoAuth()
       
-      const { data, error } = await getWidgets(business.id)
-      if (error) throw error
-      setWidgets(data || [])
+      // If that fails, try direct table access
+      if (result.error) {
+        console.log('Auth-free function failed, trying direct access:', result.error)
+        result = await getWidgetsDirectly()
+      }
+      
+      if (result.error) {
+        throw result.error
+      }
+      
+      setWidgets(result.data || [])
+      console.log('Widgets loaded successfully:', result.data)
     } catch (error) {
       console.error('Error fetching widgets:', error)
-      toast.error('Failed to load widgets')
+      toast.error('Failed to load widgets: ' + error.message)
       setWidgets([])
     } finally {
       setLoading(false)
@@ -91,36 +107,44 @@ const Dashboard = () => {
 
   const fetchAnalytics = async () => {
     try {
-      const business = await ensureUserHasBusiness()
-      if (!business) return
+      // Get analytics from widgets directly
+      const { data: widgetsData } = await getWidgetsDirectly()
       
-      const { data, error } = await getAnalytics(business.id)
-      if (error) throw error
-      
-      // Calculate analytics from data
-      const totalViews = data?.reduce((sum, item) => sum + (item.views || 0), 0) || 0
-      const totalClicks = data?.reduce((sum, item) => sum + (item.clicks || 0), 0) || 0
-      const conversionRate = totalViews > 0 ? ((totalClicks / totalViews) * 100).toFixed(1) : 0
-      
-      setAnalytics({
-        totalViews,
-        totalClicks,
-        conversionRate,
-        averageRating: 4.8 // Mock data
-      })
+      if (widgetsData) {
+        const totalViews = widgetsData.reduce((sum, widget) => sum + (widget.views || 0), 0)
+        const totalClicks = widgetsData.reduce((sum, widget) => sum + (widget.clicks || 0), 0)
+        const conversionRate = totalViews > 0 ? ((totalClicks / totalViews) * 100).toFixed(1) : 0
+        
+        setAnalytics({
+          totalViews,
+          totalClicks,
+          conversionRate,
+          averageRating: 4.8 // Mock data
+        })
+      } else {
+        // Default values if no data
+        setAnalytics({
+          totalViews: 0,
+          totalClicks: 0,
+          conversionRate: 0,
+          averageRating: 0
+        })
+      }
     } catch (error) {
       console.error('Error fetching analytics:', error)
       // Don't show error toast for analytics as it's not critical
+      setAnalytics({
+        totalViews: 0,
+        totalClicks: 0,
+        conversionRate: 0,
+        averageRating: 0
+      })
     }
   }
 
   const handleCreateWidget = async () => {
     try {
-      const business = await ensureUserHasBusiness()
-      if (!business) return
-
       const widgetData = {
-        business_id: business.id,
         name: widgetConfig.name,
         title: widgetConfig.title,
         subtitle: widgetConfig.subtitle,
@@ -132,10 +156,20 @@ const Dashboard = () => {
         is_active: true
       }
 
-      const { data, error } = await createWidget(widgetData)
-      console.log('Widget creation result:', { data, error })
+      // Try auth-free function first
+      let result = await createWidgetNoAuth(widgetData)
       
-      if (error) throw error
+      // If that fails, try direct table access
+      if (result.error) {
+        console.log('Auth-free function failed, trying direct access:', result.error)
+        result = await createWidgetDirectly(widgetData)
+      }
+      
+      console.log('Widget creation result:', result)
+      
+      if (result.error) {
+        throw result.error
+      }
       
       toast.success('Widget created successfully!')
       setShowWidgetBuilder(false)
@@ -181,7 +215,7 @@ const Dashboard = () => {
         colors: widgetConfig.colors
       }
 
-      const { error } = await updateWidget(editingWidget.id, updates)
+      const { error } = await updateWidgetNoAuth(editingWidget.id, updates)
       
       if (error) throw error
       
@@ -200,7 +234,7 @@ const Dashboard = () => {
     if (!confirm('Are you sure you want to delete this widget?')) return
 
     try {
-      const { error } = await deleteWidget(widgetId)
+      const { error } = await deleteWidgetNoAuth(widgetId)
       
       if (error) throw error
       
