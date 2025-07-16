@@ -1,0 +1,1 @@
+This branch contains the complete solution for widget generation and PayPal payments
